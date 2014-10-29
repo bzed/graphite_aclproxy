@@ -77,6 +77,13 @@ def upstream_req():
  
 def check_acl():
     remote_ip = IP(request.remote_addr)
+    allowed_tokens = []
+    for network, acl_tokens in ACL.iteritems():
+        if remote_ip in IP(network):
+            allowed_tokens.extend(acl_tokens)
+    if not allowed_tokens:
+        return False
+
     try:
         if not request.args.has_key('target'):
             raise ValueError('target missing in query')
@@ -85,14 +92,10 @@ def check_acl():
             for token in _evaluateTokens(tokens):
                 token_allowed = False
                 LOG.debug("evaluated target: %s", token)
-                for network, allowed_targets in ACL.iteritems():
-                    if remote_ip in IP(network):
-                        for allowed_target in allowed_targets:
-                            if fnmatch(token, allowed_target):
-                                LOG.debug("token %s allowed in %s [%s]", token, network, allowed_target)
-                                token_allowed = True
-                                break
-                    if token_allowed:
+                for allowed_token in allowed_tokens:
+                    if fnmatch(token, allowed_token):
+                        LOG.debug("token %s allowed in %s [%s]", token, network, allowed_token)
+                        token_allowed = True
                         break
                 if not token_allowed:
                     return False
