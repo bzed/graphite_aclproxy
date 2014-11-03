@@ -23,15 +23,50 @@ from fnmatch import fnmatch
 from .grammar import grammar
 import requests
 import logging
+
+static_favicon=True
+try:
+    from wand.image import Image
+    from wand.color import Color
+    from StringIO import StringIO
+    static_favicon=False
+except ImportError:
+    pass
+
  
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static')
 app.config.from_object('graphite_aclproxy.default_settings')
 app.config.from_object('graphite_aclproxy.local_settings')
 
 logging.basicConfig(level=app.config['LOG_LEVEL'])
 LOG = logging.getLogger(app.config['LOG_NAME'])
 
-ACL = app.config['ACL']
+IP_ACL = app.config['IP_ACL']
+
+@app.route('/favicon.ico')
+def favicon():
+    if static_favicon:
+        return app.send_static_file('favicon.ico')
+
+    # for dynamic fun:
+    # width=64&height=64&from=-2hours&graphOnly=true&target=carbon.agents.*.metricsReceived
+    favicon_args = {
+            'width' : 32,
+            'height' : 32,
+            'from' : '-2hours',
+            'graphOnly' : 'true',
+            'target' : 'carbon.agents.*.metricsReceived',
+            'format' : 'png'
+            }
+    response, headers = upstream_req(favicon_args)
+    response_file=StringIO()
+    for data in response():
+        response_file.write(data)
+    response_file.seek(0)
+    image = Image(file=response_file, format='png')
+    image.format='ico'
+    headers['content-type']='image/x-icon'
+    return Response(image.make_blob(), headers=headers)
 
 
 @app.route('/', defaults={'url': ''})
@@ -45,12 +80,21 @@ def root(url):
 def proxy():
     """Proxy the render API.
     """
-    if not check_acl():
+    if not check_ip_acl():
         LOG.warn("FailedACL: '%s', '400', '%s'", request.remote_addr, request.query_string)
         abort(400)
 
-    r = upstream_req()
-    LOG.info("UpstreamRequest: '%s','%s'", r.status_code, request.query_string)
+    response, headers = upstream_req(request.args.to_dict(flat=False))
+    return Response(response(), headers)
+
+ 
+ 
+def upstream_req(args):
+
+    url = '%s/render/' % (app.config['GRAPHITE_URL'],)
+    headers = {}
+    r=requests.get(url, stream=True , params = args, headers=headers)
+    LOG.info("UpstreamRequest: '%s','%s'", r.status_code, args)
 
     # abort if status_code != 200
     if r.status_code != 200:
@@ -65,20 +109,14 @@ def proxy():
     def resp_generator():
         for chunk in r.iter_content(app.config['CHUNK_SIZE']):
             yield chunk
-    return Response(resp_generator(), headers = headers)
+    return (resp_generator, headers)
+
  
  
-def upstream_req():
-    url = '%s/render/' % (app.config['GRAPHITE_URL'],)
-    headers = {}
-    args = request.args.to_dict(flat=False)
-    return requests.get(url, stream=True , params = args, headers=headers)
- 
- 
-def check_acl():
+def check_ip_acl():
     remote_ip = IP(request.remote_addr)
     allowed_tokens = []
-    for network, acl_tokens in ACL.iteritems():
+    for network, acl_tokens in IP_ACL.iteritems():
         if remote_ip in IP(network):
             allowed_tokens.extend(acl_tokens)
     if not allowed_tokens:
