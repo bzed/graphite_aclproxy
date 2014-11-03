@@ -24,7 +24,7 @@ try:
     from graphite_aclproxy.proxy import app
 except ImportError:
     import os
-    sys.path = [os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))] + sys.path
+    sys.path = [os.path.realpath(os.path.dirname(__file__))] + sys.path
     from graphite_aclproxy.proxy import app
 
 app.debug = True

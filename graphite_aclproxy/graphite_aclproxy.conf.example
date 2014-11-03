@@ -1,0 +1,22 @@
+# you should copy this file to
+# /etc/carbon/graphite_aclproxy.conf
+# or to the place where the
+# 'GRAPHITE_ACLPROXY_SETTINGS'
+# environment variable points to.
+#
+
+import logging
+
+DEBUG = False
+
+LOG_LEVEL = logging.WARN
+LOG_NAME = 'graphite_aclproxy'
+
+GRAPHITE_URL = 'http://127.0.0.1/'
+CHUNK_SIZE = 1024
+
+IP_ACL = {
+    '127.0.0.1/32' :   [ 'carbon.*.*.*', 'carbon.*.*.*.*', 'carbon.*.*.*.*.*' ]
+}
+
+

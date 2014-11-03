@@ -23,6 +23,7 @@ from fnmatch import fnmatch
 from .grammar import grammar
 import requests
 import logging
+import os
 
 static_favicon=True
 try:
@@ -33,10 +34,26 @@ try:
 except ImportError:
     pass
 
- 
-app = Flask(__name__, static_url_path='/static')
+
+configfile_name = 'graphite_aclproxy.conf'
+
+instance_relative_config = False
+instance_path = None
+if os.path.exists('/etc/carbon/%s' %(configfile_name, )):
+    instance_relative_config = True
+    instance_path = '/etc/carbon'
+    
+app = Flask(    __name__.split('.')[0],
+                static_url_path='/static',
+                instance_relative_config = instance_relative_config,
+                instance_path = instance_path
+            )
 app.config.from_object('graphite_aclproxy.default_settings')
-app.config.from_object('graphite_aclproxy.local_settings')
+
+if os.getenv('GRAPHITE_ACLPROXY_SETTINGS'):
+    app.config.from_envvar('GRAPHITE_ACLPROXY_SETTINGS')
+else:
+    app.config.from_pyfile(configfile_name, silent=False)
 
 logging.basicConfig(level=app.config['LOG_LEVEL'])
 LOG = logging.getLogger(app.config['LOG_NAME'])
