@@ -115,7 +115,7 @@ def upstream_req(args):
 
     # abort if status_code != 200
     if r.status_code != 200:
-        abort(503)
+        abort(503, 'graphite render api returned an error')
 
     r_headers = dict(r.headers)
     headers = {
@@ -156,7 +156,7 @@ def check_ip_acl():
                     return False
     except Exception, e:
         LOG.warn("FailedRequest: %s (%s)", str(e), request.query_string)
-        abort(400)
+        abort(400, 'Failed to parse targets')
 
     return True
 
