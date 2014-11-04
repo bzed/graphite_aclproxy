@@ -137,6 +137,7 @@ def check_ip_acl():
         if remote_ip in IP(network):
             allowed_tokens.extend(acl_tokens)
     if not allowed_tokens:
+        LOG.warn("No ACLs for %s", remote_ip)
         return False
 
     try:
