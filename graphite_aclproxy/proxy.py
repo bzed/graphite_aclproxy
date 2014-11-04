@@ -102,7 +102,7 @@ def proxy():
         abort(400)
 
     response, headers = upstream_req(request.args.to_dict(flat=False))
-    return Response(response(), headers)
+    return Response(response(), headers = headers, status = 200)
 
  
  
