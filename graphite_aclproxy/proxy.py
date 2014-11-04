@@ -108,9 +108,9 @@ def proxy():
  
 def upstream_req(args):
 
-    url = '%s/render/' % (app.config['GRAPHITE_URL'],)
+    url = '%s/render/' % (app.config['REQUESTS_GRAPHITE_URL'],)
     headers = {}
-    r=requests.get(url, stream=True , params = args, headers=headers)
+    r=requests.get(url, stream=True , params = args, headers=headers, verify=app.config['REQUESTS_SSL_VERIFY'])
     LOG.info("UpstreamRequest: '%s','%s'", r.status_code, args)
 
     # abort if status_code != 200
@@ -124,7 +124,7 @@ def upstream_req(args):
         'content-type' : r_headers['content-type']
     }
     def resp_generator():
-        for chunk in r.iter_content(app.config['CHUNK_SIZE']):
+        for chunk in r.iter_content(app.config['REQUESTS_CHUNK_SIZE']):
             yield chunk
     return (resp_generator, headers)
 
