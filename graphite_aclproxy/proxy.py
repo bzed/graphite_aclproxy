@@ -115,9 +115,7 @@ def upstream_req(args):
 
     # abort if status_code != 200
     if r.status_code != 200:
-        if r.status_code >= 300 and r.status_code <= 399:
-            abort(503)
-        abort(r.status_code)
+        abort(503)
 
     r_headers = dict(r.headers)
     headers = {
