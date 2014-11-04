@@ -149,7 +149,7 @@ def check_ip_acl():
                 LOG.debug("evaluated target: %s", token)
                 for allowed_token in allowed_tokens:
                     if fnmatch(token, allowed_token):
-                        LOG.debug("token %s allowed in %s [%s]", token, network, allowed_token)
+                        LOG.warn("token %s allowed in %s [%s]", token, network, allowed_token)
                         token_allowed = True
                         break
                 if not token_allowed:
