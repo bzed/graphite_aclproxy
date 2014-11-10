@@ -13,3 +13,4 @@ TODOS:
   * Implement user based acls
   * add support for various /metric/ requests
   * add some documentation, better coding style, .....
+  * add caching
