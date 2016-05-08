@@ -39,7 +39,7 @@ configfile_name = 'graphite_aclproxy.conf'
 
 instance_relative_config = False
 instance_path = None
-if os.path.exists('/etc/carbon/%s' %(configfile_name, )):
+if os.path.exists('/etc/carbon/{0!s}'.format(configfile_name )):
     instance_relative_config = True
     instance_path = '/etc/carbon'
     
@@ -89,7 +89,7 @@ def favicon():
 @app.route('/', defaults={'url': ''})
 @app.route('/<path:url>')
 def root(url):
-    LOG.warn('Unknown url: %s' %(url,))
+    LOG.warn('Unknown url: {0!s}'.format(url))
     abort(404)
  
  
@@ -108,7 +108,7 @@ def proxy():
  
 def upstream_req(args):
 
-    url = '%s/render/' % (app.config['REQUESTS_GRAPHITE_URL'],)
+    url = '{0!s}/render/'.format(app.config['REQUESTS_GRAPHITE_URL'])
     headers = {}
     r=requests.get(url, stream=True , params = args, headers=headers, verify=app.config['REQUESTS_SSL_VERIFY'])
     LOG.info("UpstreamRequest: '%s','%s'", r.status_code, args)
