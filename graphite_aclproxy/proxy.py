@@ -25,12 +25,11 @@ import requests
 import logging
 import os
 
-static_favicon=True
+static_favicon = True
 try:
     from wand.image import Image
-    from wand.color import Color
     from StringIO import StringIO
-    static_favicon=False
+    static_favicon = False
 except ImportError:
     pass
 
@@ -42,11 +41,11 @@ instance_path = None
 if os.path.exists('/etc/carbon/{0!s}'.format(configfile_name )):
     instance_relative_config = True
     instance_path = '/etc/carbon'
-    
-app = Flask(    __name__.split('.')[0],
-                static_url_path='/static',
-                instance_relative_config = instance_relative_config,
-                instance_path = instance_path
+
+app = Flask(__name__.split('.')[0],
+            static_url_path='/static',
+            instance_relative_config=instance_relative_config,
+            instance_path=instance_path
             )
 app.config.from_object('graphite_aclproxy.default_settings')
 
@@ -60,6 +59,7 @@ LOG = logging.getLogger(app.config['LOG_NAME'])
 
 IP_ACL = app.config['IP_ACL']
 
+
 @app.route('/favicon.ico')
 def favicon():
     if static_favicon:
@@ -68,21 +68,21 @@ def favicon():
     # for dynamic fun:
     # width=64&height=64&from=-2hours&graphOnly=true&target=carbon.agents.*.metricsReceived
     favicon_args = {
-            'width' : 32,
-            'height' : 32,
-            'from' : '-2hours',
-            'graphOnly' : 'true',
-            'target' : 'carbon.agents.*.metricsReceived',
-            'format' : 'png'
+            'width': 32,
+            'height': 32,
+            'from': '-2hours',
+            'graphOnly': 'true',
+            'target': 'carbon.agents.*.metricsReceived',
+            'format': 'png'
             }
     response, headers = upstream_req(favicon_args)
-    response_file=StringIO()
+    response_file = StringIO()
     for data in response():
         response_file.write(data)
     response_file.seek(0)
     image = Image(file=response_file, format='png')
-    image.format='ico'
-    headers['content-type']='image/x-icon'
+    image.format = 'ico'
+    headers['content-type'] = 'image/x-icon'
     return Response(image.make_blob(), headers=headers)
 
 
@@ -91,26 +91,35 @@ def favicon():
 def root(url):
     LOG.warn('Unknown url: {0!s}'.format(url))
     abort(404)
- 
- 
+
+
 @app.route('/render/')
 def proxy():
     """Proxy the render API.
     """
     if not check_ip_acl():
-        LOG.warn("FailedACL: '%s', '400', '%s'", request.remote_addr, request.query_string)
+        LOG.warn("FailedACL: '%s', '400', '%s'",
+                 request.remote_addr,
+                 request.query_string
+                 )
         abort(400)
 
     response, headers = upstream_req(request.args.to_dict(flat=False))
-    return Response(response(), headers = headers, status = 200)
+    return Response(response(), headers=headers, status=200)
 
- 
- 
+
 def upstream_req(args):
 
     url = '{0!s}/render/'.format(app.config['REQUESTS_GRAPHITE_URL'])
+    auth = app.config['REQUESTS_GRAPHITE_AUTH']
     headers = {}
-    r=requests.get(url, stream=True , params = args, headers=headers, verify=app.config['REQUESTS_SSL_VERIFY'])
+    r = requests.get(url,
+                     stream=True,
+                     params=args,
+                     headers=headers,
+                     verify=app.config['REQUESTS_SSL_VERIFY'],
+                     auth=auth
+                     )
     LOG.info("UpstreamRequest: '%s','%s'", r.status_code, args)
 
     # abort if status_code != 200
@@ -119,15 +128,15 @@ def upstream_req(args):
 
     r_headers = dict(r.headers)
     headers = {
-        'content-type' : r_headers['content-type']
+        'content-type': r_headers['content-type']
     }
+
     def resp_generator():
         for chunk in r.iter_content(app.config['REQUESTS_CHUNK_SIZE']):
             yield chunk
     return (resp_generator, headers)
 
- 
- 
+
 def check_ip_acl():
     remote_ip = IP(request.remote_addr)
     allowed_tokens = []
@@ -139,7 +148,7 @@ def check_ip_acl():
         return False
 
     try:
-        if not request.args.has_key('target'):
+        if 'target' not in request.args:
             raise ValueError('target missing in query')
         for target in request.args.getlist('target'):
             tokens = grammar.parseString(target)
@@ -148,13 +157,19 @@ def check_ip_acl():
                 LOG.debug("evaluated target: %s", token)
                 for allowed_token in allowed_tokens:
                     if fnmatch(token, allowed_token):
-                        LOG.debug("token %s allowed in [%s]", token, allowed_token)
+                        LOG.debug("token %s allowed in [%s]",
+                                  token,
+                                  allowed_token
+                                  )
                         token_allowed = True
                         break
                 if not token_allowed:
-                    LOG.warn("token %s not allowed in [%s]", token, allowed_token)
+                    LOG.warn("token %s not allowed in [%s]",
+                             token,
+                             allowed_token
+                             )
                     return False
-    except Exception, e:
+    except Exception as e:
         LOG.warn("FailedRequest: %s (%s)", str(e), request.query_string)
         abort(400, 'Failed to parse targets')
 
