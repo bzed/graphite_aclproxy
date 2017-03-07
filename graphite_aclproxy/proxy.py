@@ -22,8 +22,10 @@ from fnmatch import fnmatch
 
 from .grammar import grammar
 import requests
+from requests.auth import HTTPBasicAuth
 import logging
 import os
+import json
 
 static_favicon = True
 try:
@@ -57,7 +59,9 @@ else:
 logging.basicConfig(level=app.config['LOG_LEVEL'])
 LOG = logging.getLogger(app.config['LOG_NAME'])
 
+AUTH = app.config['REQUESTS_GRAPHITE_AUTH']
 IP_ACL = app.config['IP_ACL']
+DYNAMIC_FAVICON_TARGET = app.config['DYNAMIC_FAVICON_TARGET']
 
 
 @app.route('/favicon.ico')
@@ -72,10 +76,10 @@ def favicon():
             'height': 32,
             'from': '-2hours',
             'graphOnly': 'true',
-            'target': 'carbon.agents.*.metricsReceived',
+            'target': DYNAMIC_FAVICON_TARGET,
             'format': 'png'
             }
-    response, headers = upstream_req(favicon_args)
+    response, headers = upstream_req('/render/', favicon_args)
     response_file = StringIO()
     for data in response():
         response_file.write(data)
@@ -94,23 +98,41 @@ def root(url):
 
 
 @app.route('/render/')
-def proxy():
+def render_proxy():
     """Proxy the render API.
     """
-    if not check_ip_acl():
+    if not check_render_ip_acl():
         LOG.warn("FailedACL: '%s', '400', '%s'",
                  request.remote_addr,
                  request.query_string
                  )
         abort(400)
 
-    response, headers = upstream_req(request.args.to_dict(flat=False))
+    response, headers = upstream_req('/render/',
+                                     request.args.to_dict(flat=False)
+                                     )
     return Response(response(), headers=headers, status=200)
 
 
-def upstream_req(args):
+@app.route('/metrics/find/')
+def metrics_proxy():
+    """Proxy the render API.
+    """
+    response, headers = upstream_req('/metrics/find/',
+                                     request.args.to_dict(flat=False)
+                                     )
+    # reponse() is a generator.
+    response_data = filter_metrics_ip_acl(''.join([x for x in response()]))
+    return Response(response_data, headers=headers, status=200)
 
-    url = '{0!s}/render/'.format(app.config['REQUESTS_GRAPHITE_URL'])
+
+def upstream_req(path, args):
+    if AUTH:
+        auth = HTTPBasicAuth(AUTH[0], AUTH[1])
+    else:
+        auth = None
+
+    url = '{0!s}{1!s}'.format(app.config['REQUESTS_GRAPHITE_URL'], path)
     auth = app.config['REQUESTS_GRAPHITE_AUTH']
     headers = {}
     r = requests.get(url,
@@ -128,7 +150,7 @@ def upstream_req(args):
 
     r_headers = dict(r.headers)
     headers = {
-        'content-type': r_headers['content-type']
+        'Content-Type': r_headers['Content-Type']
     }
 
     def resp_generator():
@@ -137,12 +159,50 @@ def upstream_req(args):
     return (resp_generator, headers)
 
 
-def check_ip_acl():
-    remote_ip = IP(request.remote_addr)
+def get_allowed_ip_acl_tokens(remote_ip):
+    remote_ip = IP(remote_ip)
     allowed_tokens = []
     for network, acl_tokens in IP_ACL.iteritems():
         if remote_ip in IP(network):
             allowed_tokens.extend(acl_tokens)
+    return allowed_tokens
+
+
+def filter_metrics_ip_acl(response):
+    filtered_response = []
+    remote_ip = request.remote_addr
+    allowed_tokens = get_allowed_ip_acl_tokens(remote_ip)
+    if not allowed_tokens:
+        LOG.warn("No ACLs for %s", remote_ip)
+        return []
+
+    try:
+        filter_tokens = []
+        for allowed_token in allowed_tokens:
+            token_parts = allowed_token.split('.')
+            for i in range(1, len(token_parts) + 1):
+                filter_tokens.append('.'.join(token_parts[0:i]))
+        # remove duplicates
+        filter_tokens = list(set(filter_tokens))
+        response_data = json.loads(response)
+        for resp in response_data:
+            for filter_token in filter_tokens:
+                if fnmatch(resp['id'], filter_token):
+                    filtered_response.append(resp)
+                    break
+        return json.dumps(filtered_response)
+    except Exception as err:
+        LOG.warn("FailedRequest: %s (%s) - %s",
+                 str(err),
+                 request.query_string,
+                 response)
+        abort(400, 'Failed to parse targets')
+    return True
+
+
+def check_render_ip_acl():
+    remote_ip = request.remote_addr
+    allowed_tokens = get_allowed_ip_acl_tokens(remote_ip)
     if not allowed_tokens:
         LOG.warn("No ACLs for %s", remote_ip)
         return False
@@ -155,22 +215,22 @@ def check_ip_acl():
             for token in _evaluateTokens(tokens):
                 token_allowed = False
                 LOG.debug("evaluated target: %s", token)
+                allowed_token = allowed_tokens[0]
                 for allowed_token in allowed_tokens:
                     if fnmatch(token, allowed_token):
                         LOG.debug("token %s allowed in [%s]",
                                   token,
-                                  allowed_token
+                                  allowed_token,
                                   )
                         token_allowed = True
                         break
                 if not token_allowed:
                     LOG.warn("token %s not allowed in [%s]",
                              token,
-                             allowed_token
-                             )
+                             allowed_token)
                     return False
-    except Exception as e:
-        LOG.warn("FailedRequest: %s (%s)", str(e), request.query_string)
+    except Exception as err:
+        LOG.warn("FailedRequest: %s (%s)", str(err), request.query_string)
         abort(400, 'Failed to parse targets')
 
     return True
@@ -192,4 +252,3 @@ def _evaluateTokens(tokens):
         for kwarg in tokens.call.kwargs:
             for i in _evaluateTokens(kwarg.args[0]):
                 yield i
-
