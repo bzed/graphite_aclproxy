@@ -176,14 +176,15 @@ def filter_metrics_ip_acl(response):
         LOG.warn("No ACLs for %s", remote_ip)
         return []
 
+    filter_tokens = []
+    for allowed_token in allowed_tokens:
+        token_parts = allowed_token.split('.')
+        for i in range(1, len(token_parts) + 1):
+            filter_tokens.append('.'.join(token_parts[0:i]))
+    # remove duplicates
+    filter_tokens = list(set(filter_tokens))
+
     try:
-        filter_tokens = []
-        for allowed_token in allowed_tokens:
-            token_parts = allowed_token.split('.')
-            for i in range(1, len(token_parts) + 1):
-                filter_tokens.append('.'.join(token_parts[0:i]))
-        # remove duplicates
-        filter_tokens = list(set(filter_tokens))
         response_data = json.loads(response)
         for resp in response_data:
             for filter_token in filter_tokens:
