@@ -26,6 +26,7 @@ from requests.auth import HTTPBasicAuth
 import logging
 import os
 import json
+import six
 
 static_favicon = True
 try:
@@ -122,7 +123,10 @@ def metrics_proxy():
                                      request.args.to_dict(flat=False)
                                      )
     # reponse() is a generator.
-    response_data = filter_metrics_ip_acl(''.join([x for x in response()]))
+    response_data = filter_metrics_ip_acl(
+        ''.join([
+           x.decode("utf-8") for x in response()
+        ]))
     return Response(response_data, headers=headers, status=200)
 
 
@@ -162,7 +166,7 @@ def upstream_req(path, args):
 def get_allowed_ip_acl_tokens(remote_ip):
     remote_ip = IP(remote_ip)
     allowed_tokens = []
-    for network, acl_tokens in IP_ACL.iteritems():
+    for network, acl_tokens in six.iteritems(IP_ACL):
         if remote_ip in IP(network):
             allowed_tokens.extend(acl_tokens)
     return allowed_tokens
@@ -193,6 +197,7 @@ def filter_metrics_ip_acl(response):
                     break
         return json.dumps(filtered_response)
     except Exception as err:
+        raise
         LOG.warn("FailedRequest: %s (%s) - %s",
                  str(err),
                  request.query_string,
