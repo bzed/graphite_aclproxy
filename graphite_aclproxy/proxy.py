@@ -216,25 +216,24 @@ def check_render_ip_acl():
     try:
         if 'target' not in request.args:
             raise ValueError('target missing in query')
-        for target in request.args.getlist('target'):
-            tokens = grammar.parseString(target)
-            for token in _evaluateTokens(tokens):
-                token_allowed = False
-                LOG.debug("evaluated target: %s", token)
-                allowed_token = allowed_tokens[0]
-                for allowed_token in allowed_tokens:
-                    if fnmatch(token, allowed_token):
-                        LOG.debug("token %s allowed in [%s]",
-                                  token,
-                                  allowed_token,
-                                  )
-                        token_allowed = True
-                        break
-                if not token_allowed:
-                    LOG.warn("token %s not allowed in [%s]",
-                             token,
-                             allowed_token)
-                    return False
+        tokens = extractPathExpressions(None, request.args.getlist('target'))
+        for token in tokens:
+            token_allowed = False
+            LOG.debug("evaluated target: %s", token)
+            allowed_token = allowed_tokens[0]
+            for allowed_token in allowed_tokens:
+                if fnmatch(token, allowed_token):
+                    LOG.debug("token %s allowed in [%s]",
+                              token,
+                              allowed_token,
+                              )
+                    token_allowed = True
+                    break
+            if not token_allowed:
+                LOG.warn("token %s not allowed in [%s]",
+                         token,
+                         allowed_token)
+                return False
     except Exception as err:
         LOG.warn("FailedRequest: %s (%s)", str(err), request.query_string)
         abort(400, 'Failed to parse targets')
@@ -242,19 +241,73 @@ def check_render_ip_acl():
     return True
 
 
-def _evaluateTokens(tokens):
-    if tokens.expression:
-        for i in _evaluateTokens(tokens.expression):
-            yield i
+def evaluateScalarTokens(tokens):
+    if tokens.number:
+        if tokens.number.integer:
+            return int(tokens.number.integer)
+        if tokens.number.float:
+            return float(tokens.number.float)
+        if tokens.number.scientific:
+            return float(tokens.number.scientific[0])
 
-    elif tokens.pathExpression:
-        yield tokens.pathExpression
+        raise ValueError("unknown numeric type in target evaluator")
 
-    elif tokens.call:
-        for arg in tokens.call.args:
-            for i in _evaluateTokens(arg):
-                yield i
+    if tokens.string:
+        return tokens.string[1:-1]
 
-        for kwarg in tokens.call.kwargs:
-            for i in _evaluateTokens(kwarg.args[0]):
-                yield i
+    if tokens.boolean:
+        return tokens.boolean[0] == 'true'
+
+    if tokens.none:
+        return None
+
+    raise ValueError("unknown token in target evaluator")
+
+
+def extractPathExpressions(requestContext, targets):
+    # Returns a list of unique pathExpressions found in the targets list
+
+    pathExpressions = set()
+
+    def extractPathExpression(requestContext, tokens, replacements=None):
+        if tokens.template:
+            arglist = dict()
+            if tokens.template.kwargs:
+                arglist.update(dict([(kwarg.argname, evaluateScalarTokens(kwarg.args[0])) for kwarg in tokens.template.kwargs]))
+            if tokens.template.args:
+                arglist.update(dict([(str(i+1), evaluateScalarTokens(arg)) for i, arg in enumerate(tokens.template.args)]))
+            if 'template' in requestContext:
+                arglist.update(requestContext['template'])
+            extractPathExpression(requestContext, tokens.template, arglist)
+        elif tokens.expression:
+            extractPathExpression(requestContext, tokens.expression, replacements)
+            if tokens.expression.pipedCalls:
+                for token in tokens.expression.pipedCalls:
+                    extractPathExpression(requestContext, token, replacements)
+        elif tokens.pathExpression:
+            expression = tokens.pathExpression
+            if replacements:
+                for name in replacements:
+                    if expression != '$'+name:
+                        expression = expression.replace('$'+name, str(replacements[name]))
+            pathExpressions.add(expression)
+        elif tokens.call:
+            # if we're prefetching seriesByTag, pass the entire call back as a path expression
+            if tokens.call.funcname == 'seriesByTag':
+                pathExpressions.add(tokens.call.raw)
+            else:
+                for a in tokens.call.args:
+                    extractPathExpression(requestContext, a, replacements)
+
+    for target in targets:
+        if not target:
+            continue
+
+        if isinstance(target, six.string_types):
+            if not target.strip():
+                continue
+            target = grammar.parseString(target)
+        extractPathExpression(requestContext, target)
+
+    return list(pathExpressions)
+
