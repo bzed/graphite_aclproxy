@@ -46,6 +46,7 @@ if os.path.exists('/etc/carbon/{0!s}'.format(CONFIGFILE_NAME)):
     INSTANCE_RELATIVE_CONFIG = True
     INSTANCE_PATH = '/etc/carbon'
 
+# pylint: disable=invalid-name
 app = Flask(__name__.split('.')[0],
             static_url_path='/static',
             instance_relative_config=INSTANCE_RELATIVE_CONFIG,
@@ -207,6 +208,7 @@ def filter_metrics_acl(response, allowed_tokens):
                     filtered_response.append(resp)
                     break
         return json.dumps(filtered_response)
+# pylint: disable=broad-except
     except Exception as err:
         LOG.warn("FailedRequest: %s (%s) - %s",
                  str(err),
@@ -248,6 +250,7 @@ def check_render_acl(allowed_tokens):
                          token,
                          allowed_token)
                 return False
+# pylint: disable=broad-except
     except Exception as err:
         LOG.warn("FailedRequest: %s (%s)", str(err), request.query_string)
         abort(400, 'Failed to parse targets')
