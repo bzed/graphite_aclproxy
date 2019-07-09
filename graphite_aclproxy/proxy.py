@@ -55,7 +55,7 @@ app.config.from_object('graphite_aclproxy.default_settings')
 
 if os.getenv('GRAPHITE_ACLPROXY_SETTINGS'):
     app.config.from_envvar('GRAPHITE_ACLPROXY_SETTINGS')
-else:
+elif INSTANCE_PATH and INSTANCE_RELATIVE_CONFIG:
     app.config.from_pyfile(CONFIGFILE_NAME, silent=False)
 
 logging.basicConfig(level=app.config['LOG_LEVEL'])
