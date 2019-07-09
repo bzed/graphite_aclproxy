@@ -15,47 +15,47 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import logging
+import json
+import os
 
+from fnmatch import fnmatch
 from flask import Flask, request, abort, Response
 from IPy import IP
-from fnmatch import fnmatch
-
-from .evaluator import extractPathExpressions
 import requests
 from requests.auth import HTTPBasicAuth
-import logging
-import os
-import json
 import six
 
-static_favicon = True
+
+from .evaluator import extractPathExpressions
+
+STATIC_FAVICON = True
 try:
     from wand.image import Image
     from StringIO import StringIO
-    static_favicon = False
+    STATIC_FAVICON = False
 except ImportError:
     pass
 
 
-configfile_name = 'graphite_aclproxy.conf'
+CONFIGFILE_NAME = 'graphite_aclproxy.conf'
 
-instance_relative_config = False
-instance_path = None
-if os.path.exists('/etc/carbon/{0!s}'.format(configfile_name )):
-    instance_relative_config = True
-    instance_path = '/etc/carbon'
+INSTANCE_RELATIVE_CONFIG = False
+INSTANCE_PATH = None
+if os.path.exists('/etc/carbon/{0!s}'.format(CONFIGFILE_NAME)):
+    INSTANCE_RELATIVE_CONFIG = True
+    INSTANCE_PATH = '/etc/carbon'
 
 app = Flask(__name__.split('.')[0],
             static_url_path='/static',
-            instance_relative_config=instance_relative_config,
-            instance_path=instance_path
-            )
+            instance_relative_config=INSTANCE_RELATIVE_CONFIG,
+            instance_path=INSTANCE_PATH)
 app.config.from_object('graphite_aclproxy.default_settings')
 
 if os.getenv('GRAPHITE_ACLPROXY_SETTINGS'):
     app.config.from_envvar('GRAPHITE_ACLPROXY_SETTINGS')
 else:
-    app.config.from_pyfile(configfile_name, silent=False)
+    app.config.from_pyfile(CONFIGFILE_NAME, silent=False)
 
 logging.basicConfig(level=app.config['LOG_LEVEL'])
 LOG = logging.getLogger(app.config['LOG_NAME'])
@@ -67,19 +67,19 @@ DYNAMIC_FAVICON_TARGET = app.config['DYNAMIC_FAVICON_TARGET']
 
 @app.route('/favicon.ico')
 def favicon():
-    if static_favicon:
+    if STATIC_FAVICON:
         return app.send_static_file('favicon.ico')
 
     # for dynamic fun:
     # width=64&height=64&from=-2hours&graphOnly=true&target=carbon.agents.*.metricsReceived
     favicon_args = {
-            'width': 32,
-            'height': 32,
-            'from': '-2hours',
-            'graphOnly': 'true',
-            'target': DYNAMIC_FAVICON_TARGET,
-            'format': 'png'
-            }
+        'width': 32,
+        'height': 32,
+        'from': '-2hours',
+        'graphOnly': 'true',
+        'target': DYNAMIC_FAVICON_TARGET,
+        'format': 'png'
+        }
     response, headers = upstream_req('/render/', favicon_args)
     response_file = StringIO()
     for data in response():
@@ -94,7 +94,7 @@ def favicon():
 @app.route('/', defaults={'url': ''})
 @app.route('/<path:url>')
 def root(url):
-    LOG.warn('Unknown url: {0!s}'.format(url))
+    LOG.warn('Unknown url: %s', url)
     abort(404)
 
 
@@ -103,15 +103,17 @@ def render_proxy():
     """Proxy the render API.
     """
     if not check_render_ip_acl():
-        LOG.warn("FailedACL: '%s', '400', '%s'",
-                 request.remote_addr,
-                 request.query_string
-                 )
+        LOG.warn(
+            "FailedACL: '%s', '400', '%s'",
+            request.remote_addr,
+            request.query_string
+        )
         abort(400)
 
-    response, headers = upstream_req('/render/',
-                                     request.args.to_dict(flat=False)
-                                     )
+    response, headers = upstream_req(
+        '/render/',
+        request.args.to_dict(flat=False)
+    )
     return Response(response(), headers=headers, status=200)
 
 
@@ -119,14 +121,18 @@ def render_proxy():
 def metrics_proxy():
     """Proxy the render API.
     """
-    response, headers = upstream_req('/metrics/find/',
-                                     request.args.to_dict(flat=False)
-                                     )
+    response, headers = upstream_req(
+        '/metrics/find/',
+        request.args.to_dict(flat=False)
+    )
     # reponse() is a generator.
     response_data = filter_metrics_ip_acl(
-        ''.join([
-           x.decode("utf-8") for x in response()
-        ]))
+        ''.join(
+            [
+                x.decode("utf-8") for x in response()
+            ]
+        )
+    )
     return Response(response_data, headers=headers, status=200)
 
 
@@ -139,26 +145,34 @@ def upstream_req(path, args):
     url = '{0!s}{1!s}'.format(app.config['REQUESTS_GRAPHITE_URL'], path)
     auth = app.config['REQUESTS_GRAPHITE_AUTH']
     headers = {}
-    r = requests.get(url,
-                     stream=True,
-                     params=args,
-                     headers=headers,
-                     verify=app.config['REQUESTS_SSL_VERIFY'],
-                     auth=auth
-                     )
-    LOG.info("UpstreamRequest: '%s','%s'", r.status_code, args)
+    upstream_response = requests.get(
+        url,
+        stream=True,
+        params=args,
+        headers=headers,
+        verify=app.config['REQUESTS_SSL_VERIFY'],
+        auth=auth
+    )
+    LOG.info(
+        "UpstreamRequest: '%s','%s'",
+        upstream_response.status_code,
+        args
+    )
 
     # abort if status_code != 200
-    if r.status_code != 200:
+    if upstream_response.status_code != 200:
         abort(503, 'graphite render api returned an error')
 
-    r_headers = dict(r.headers)
+    upstream_response_headers = dict(upstream_response.headers)
     headers = {
-        'Content-Type': r_headers['Content-Type']
+        'Content-Type': upstream_response_headers['Content-Type']
     }
 
     def resp_generator():
-        for chunk in r.iter_content(app.config['REQUESTS_CHUNK_SIZE']):
+        chunks = upstream_response.iter_content(
+            app.config['REQUESTS_CHUNK_SIZE']
+        )
+        for chunk in chunks:
             yield chunk
     return (resp_generator, headers)
 
@@ -172,14 +186,11 @@ def get_allowed_ip_acl_tokens(remote_ip):
     return allowed_tokens
 
 
-def filter_metrics_ip_acl(response):
-    filtered_response = []
-    remote_ip = request.remote_addr
-    allowed_tokens = get_allowed_ip_acl_tokens(remote_ip)
+def filter_metrics_acl(response, allowed_tokens):
     if not allowed_tokens:
-        LOG.warn("No ACLs for %s", remote_ip)
         return []
 
+    filtered_response = []
     filter_tokens = []
     for allowed_token in allowed_tokens:
         token_parts = allowed_token.split('.')
@@ -197,7 +208,6 @@ def filter_metrics_ip_acl(response):
                     break
         return json.dumps(filtered_response)
     except Exception as err:
-        raise
         LOG.warn("FailedRequest: %s (%s) - %s",
                  str(err),
                  request.query_string,
@@ -206,11 +216,14 @@ def filter_metrics_ip_acl(response):
     return True
 
 
-def check_render_ip_acl():
+def filter_metrics_ip_acl(response):
     remote_ip = request.remote_addr
     allowed_tokens = get_allowed_ip_acl_tokens(remote_ip)
+    return filter_metrics_acl(response, allowed_tokens)
+
+
+def check_render_acl(allowed_tokens):
     if not allowed_tokens:
-        LOG.warn("No ACLs for %s", remote_ip)
         return False
 
     try:
@@ -223,10 +236,11 @@ def check_render_ip_acl():
             allowed_token = allowed_tokens[0]
             for allowed_token in allowed_tokens:
                 if fnmatch(token, allowed_token):
-                    LOG.debug("token %s allowed in [%s]",
-                              token,
-                              allowed_token,
-                              )
+                    LOG.debug(
+                        "token %s allowed in [%s]",
+                        token,
+                        allowed_token,
+                    )
                     token_allowed = True
                     break
             if not token_allowed:
@@ -240,3 +254,8 @@ def check_render_ip_acl():
 
     return True
 
+
+def check_render_ip_acl():
+    remote_ip = request.remote_addr
+    allowed_tokens = get_allowed_ip_acl_tokens(remote_ip)
+    return check_render_acl(allowed_tokens)
