@@ -109,7 +109,7 @@ def render_proxy():
             request.remote_addr,
             request.query_string
         )
-        abort(400)
+        return Response('Failed ACL!', status=400)
 
     response, headers = upstream_req(
         '/render/',
