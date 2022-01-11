@@ -224,7 +224,7 @@ def filter_metrics_list(data, data_function, allowed_tokens):
         return []
 
     filtered_response = []
-    filter_tokens = get_filter_tokens(allowed_token)
+    filter_tokens = get_filter_tokens(allowed_tokens)
 
     for to_filter in data:
         for filter_token in filter_tokens:
