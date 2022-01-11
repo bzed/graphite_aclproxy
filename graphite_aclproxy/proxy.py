@@ -99,7 +99,7 @@ def root(url):
     abort(404)
 
 
-@app.route('/render/')
+@app.route('/render')
 def render_proxy():
     """Proxy the render API.
     """
@@ -118,9 +118,30 @@ def render_proxy():
     return Response(response(), headers=headers, status=200)
 
 
-@app.route('/metrics/find/')
-def metrics_proxy():
-    """Proxy the render API.
+@app.route('/metrics/expand')
+def metrics_expand():
+    """Metrics expander.
+       filter_metrics_expand(response, allowed_tokens)
+    """
+    response, headers = upstream_req(
+        '/metrics/expand',
+        request.args.to_dict(flat=False)
+    )
+    # reponse() is a generator.
+    response_data = filter_metrics_ip_acl(
+        ''.join(
+            [
+                x.decode("utf-8") for x in response()
+            ]
+        ),
+        filter_metrics_expand
+    )
+    return Response(response_data, headers=headers, status=200)
+
+
+@app.route('/metrics/find')
+def metrics_find():
+    """Metrics finder.
     """
     response, headers = upstream_req(
         '/metrics/find/',
@@ -132,7 +153,8 @@ def metrics_proxy():
             [
                 x.decode("utf-8") for x in response()
             ]
-        )
+        ),
+        filter_metrics_acl
     )
     return Response(response_data, headers=headers, status=200)
 
@@ -186,12 +208,7 @@ def get_allowed_ip_acl_tokens(remote_ip):
             allowed_tokens.extend(acl_tokens)
     return allowed_tokens
 
-
-def filter_metrics_acl(response, allowed_tokens):
-    if not allowed_tokens:
-        return []
-
-    filtered_response = []
+def get_filter_tokens(allowed_tokens):
     filter_tokens = []
     for allowed_token in allowed_tokens:
         token_parts = allowed_token.split('.')
@@ -199,14 +216,49 @@ def filter_metrics_acl(response, allowed_tokens):
             filter_tokens.append('.'.join(token_parts[0:i]))
     # remove duplicates
     filter_tokens = list(set(filter_tokens))
+    return filter_tokens
 
+
+def filter_metrics_list(data, data_function, allowed_tokens): 
+    if not allowed_tokens:
+        return []
+
+    filtered_response = []
+    filter_tokens = get_filter_tokens(allowed_token)
+
+    for to_filter in data:
+        for filter_token in filter_tokens:
+            if fnmatch(data_function(to_filter), filter_token):
+                filtered_response.append(to_filter)
+                break
+    return filtered_response
+
+def filter_metrics_expand(response, allowed_tokens):
     try:
         response_data = json.loads(response)
-        for resp in response_data:
-            for filter_token in filter_tokens:
-                if fnmatch(resp['id'], filter_token):
-                    filtered_response.append(resp)
-                    break
+        filtered_response = filter_metrics_list(
+                response_data['results'],
+                lambda x: x,
+                allowed_tokens
+        )
+        return json.dumps({'results': filtered_response})
+# pylint: disable=broad-except
+    except Exception as err:
+        LOG.warn("FailedRequest: %s (%s) - %s",
+                 str(err),
+                 request.query_string,
+                 response)
+        abort(400, 'Failed to parse targets')
+    return '{}'
+
+def filter_metrics_acl(response, allowed_tokens):
+    try:
+        response_data = json.loads(response)
+        filtered_response = filter_metrics_list(
+                response_data,
+                lambda x: x['id'],
+                allowed_tokens
+        )
         return json.dumps(filtered_response)
 # pylint: disable=broad-except
     except Exception as err:
@@ -215,13 +267,13 @@ def filter_metrics_acl(response, allowed_tokens):
                  request.query_string,
                  response)
         abort(400, 'Failed to parse targets')
-    return True
+    return '[]'
 
 
-def filter_metrics_ip_acl(response):
+def filter_metrics_ip_acl(response, filter_function):
     remote_ip = request.remote_addr
     allowed_tokens = get_allowed_ip_acl_tokens(remote_ip)
-    return filter_metrics_acl(response, allowed_tokens)
+    return filter_function(response, allowed_tokens)
 
 
 def check_render_acl(allowed_tokens):
